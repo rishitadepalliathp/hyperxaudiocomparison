@@ -1,9 +1,11 @@
 import sys
-from PyQt5.QtCore import Qt, QRect, QSize
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QPainter, QBrush, QFont, QPen
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel
 
 class ToggleSwitch(QWidget):
+    toggled = pyqtSignal(str)  # Signal to emit the label text when toggled
+
     def __init__(self, parent=None, toggle_stack=None, label_text=""):
         super(ToggleSwitch, self).__init__(parent)
         self.setFixedSize(40, 20)
@@ -41,9 +43,9 @@ class ToggleSwitch(QWidget):
             self.update()
             if self.toggle_stack:
                 self.toggle_stack.toggle_changed(self)
-        else:
-            self.checked = False
-            self.update()
+        # Prevent toggling off by clicking the same switch
+        self.toggled.emit(self.label_text)  # Emit the signal with the label text
+
 
 class ToggleStack(QWidget):
     def __init__(self, parent=None):
@@ -66,12 +68,15 @@ class ToggleStack(QWidget):
 
         # Create and add toggle switches with labels to layout
         self.toggle_switches = []
-        for label_text in self.labels:
+        for i, label_text in enumerate(self.labels):
             h_layout = QHBoxLayout()
             label = QLabel(label_text)
             label.setFont(QFont("Forma DJR Micro", 8))  # Set the font to Forma DJR Micro
             label.setAlignment(Qt.AlignLeft)
             toggle_switch = ToggleSwitch(parent=self, toggle_stack=self, label_text=label_text)
+            if i == 0:
+                toggle_switch.checked = True  # Start with the first item turned on
+            toggle_switch.toggled.connect(self.handle_toggle)  # Connect the signal to the handler
             self.toggle_switches.append(toggle_switch)
             h_layout.addWidget(label)
             h_layout.addWidget(toggle_switch)
@@ -87,6 +92,9 @@ class ToggleStack(QWidget):
                 toggle.update()
         print(active_switch.label_text)
 
+    def handle_toggle(self, label_text):
+        print(label_text)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super(MainWindow, self).__init__()
@@ -101,3 +109,4 @@ if __name__ == "__main__":
     window = MainWindow()
     window.show()
     sys.exit(app.exec_())
+

@@ -10,6 +10,7 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from PyQt5.QtGui import QFont
 from matplotlib.font_manager import FontProperties
 import scipy.signal
+import time
 
 # Define font constants
 FONT_FAMILY = 'Forma DJR Micro'
@@ -27,14 +28,10 @@ class WaveformCanvas(FigureCanvas):
         self.setParent(parent)
         self.current_line = None
         self.music_player = music_player
-        self.loop_start_line = None
-        self.loop_end_line = None
-        self.loop_start_handle = None
-        self.loop_end_handle = None
         self.loop_start = 0
         self.loop_end = 0
-        self.dragging_line = None
-        self.loop_line_drag_threshold = 0.01  # Threshold to detect dragging of loop lines
+        self.dragging = False
+        self.selection_patch = None
         self.mpl_connect('button_press_event', self.on_click)
         self.mpl_connect('motion_notify_event', self.on_motion)
         self.mpl_connect('button_release_event', self.on_release)
@@ -53,75 +50,61 @@ class WaveformCanvas(FigureCanvas):
         for label in self.ax.get_xticklabels() + self.ax.get_yticklabels():
             label.set_fontproperties(MATPLOTLIB_FONT)
         self.current_line = self.ax.axvline(0, color='b')  # Add a vertical line at the beginning
-        self.loop_start_line = self.ax.axvline(self.loop_start, color='g', linestyle='--')
-        self.loop_end_line = self.ax.axvline(self.loop_end, color='r', linestyle='--')
-        self.loop_start_handle = self.ax.plot(self.loop_start, 1, '>', markersize=20, picker=20, color='#95ed98')[0]
-        self.loop_end_handle = self.ax.plot(self.loop_end, 1, '<', markersize=20, picker=20, color='#f07575')[0]
         self.draw()
+        self.update_selection_patch()  # Update the selection patch if loop points are set
+
+    def on_click(self, event):
+        if event.inaxes == self.ax:
+            if event.button == 3:  # Right-click
+                self.reset_loop_points()
+            elif event.button == 1:  # Left-click
+                modifiers = QApplication.keyboardModifiers()
+                if modifiers == Qt.ControlModifier:  # Control-click
+                    self.update_line(event.xdata)
+                    self.music_player.set_position_from_click(event.xdata)
+                else:  # Single-click without Control
+                    self.dragging = True
+                    self.loop_start = event.xdata
+                    self.loop_end = event.xdata  # Initialize loop end to the start point
+                    self.update_selection_patch()
+
+    def on_motion(self, event):
+        if self.dragging and event.inaxes == self.ax:
+            modifiers = QApplication.keyboardModifiers()
+            if modifiers != Qt.ControlModifier:  # Only drag if Control is not pressed
+                self.loop_end = event.xdata
+                self.update_selection_patch()
+
+    def on_release(self, event):
+        if self.dragging:
+            self.dragging = False
+            modifiers = QApplication.keyboardModifiers()
+            if modifiers != Qt.ControlModifier:  # Only update loop points if Control is not pressed
+                self.loop_end = event.xdata
+                if abs(self.loop_end - self.loop_start) < 0.1:  # Ensure the patch is at least 100 ms wide
+                    if self.loop_end > self.loop_start:
+                        self.loop_end = self.loop_start + 0.1
+                    else:
+                        self.loop_start = self.loop_end + 0.1
+                self.update_selection_patch()
+                self.loop_points_changed.emit(self.loop_start, self.loop_end)
+
+    def update_selection_patch(self):
+        if self.selection_patch:
+            self.selection_patch.remove()
+        self.selection_patch = self.ax.axvspan(self.loop_start, self.loop_end, color='yellow', alpha=0.3)
+        self.draw_idle()
+
+    def reset_loop_points(self):
+        self.loop_start = 0
+        self.loop_end = self.ax.get_xlim()[1]
+        self.update_selection_patch()
         self.loop_points_changed.emit(self.loop_start, self.loop_end)
-
-
-
-
-
 
     def update_line(self, current_time):
         if self.current_line:
             self.current_line.set_xdata([current_time])  # Update the x position of the vertical line
             self.draw_idle()  # Use draw_idle to reduce unnecessary redraws
-
-    def on_click(self, event):
-        if not self.loop_start_handle or not self.loop_end_handle:
-            return  # Exit if no audio has been loaded
-
-        if event.inaxes == self.ax:
-            # Check for right-click (button 3)
-            if event.button == 3:
-                self.reset_loop_points()
-                return
-
-            contains_start, _ = self.loop_start_handle.contains(event)
-            contains_end, _ = self.loop_end_handle.contains(event)
-            if contains_start:
-                self.dragging_line = 'start'
-            elif contains_end:
-                self.dragging_line = 'end'
-            else:
-                self.update_line(event.xdata)
-                self.music_player.set_position_from_click(event.xdata)
-
-    def on_motion(self, event):
-        if not self.loop_start_handle or not self.loop_end_handle:
-            return  # Exit if no audio has been loaded
-
-        if self.dragging_line and event.inaxes == self.ax:
-            if self.dragging_line == 'start':
-                self.loop_start = max(0, min(event.xdata, self.loop_end))
-                self.loop_start_line.set_xdata([self.loop_start])
-                self.loop_start_handle.set_xdata([self.loop_start])
-            elif self.dragging_line == 'end':
-                self.loop_end = max(self.loop_start, min(event.xdata, self.ax.get_xlim()[1]))
-                self.loop_end_line.set_xdata([self.loop_end])
-                self.loop_end_handle.set_xdata([self.loop_end])
-            self.draw_idle()
-            self.loop_points_changed.emit(self.loop_start, self.loop_end)
-
-    def on_release(self, event):
-        if not self.loop_start_handle or not self.loop_end_handle:
-            return  # Exit if no audio has been loaded
-
-        self.dragging_line = None
-
-
-    def reset_loop_points(self):
-        self.loop_start = 0
-        self.loop_end = self.ax.get_xlim()[1]
-        self.loop_start_line.set_xdata([self.loop_start])
-        self.loop_end_line.set_xdata([self.loop_end])
-        self.loop_start_handle.set_xdata([self.loop_start])
-        self.loop_end_handle.set_xdata([self.loop_end])
-        self.draw_idle()
-        self.loop_points_changed.emit(self.loop_start, self.loop_end)
 
 
 class MusicPlayer(QWidget):
@@ -284,14 +267,11 @@ class MusicPlayer(QWidget):
         if not self.is_playing:
             self.mediaPlayer.pause()
 
-        # Reapply loop points
+        # Reapply loop points (now using selection patch)
         self.waveformCanvas.loop_start = self.loop_start
         self.waveformCanvas.loop_end = self.loop_end
-        self.waveformCanvas.loop_start_line.set_xdata([self.loop_start])
-        self.waveformCanvas.loop_end_line.set_xdata([self.loop_end])
-        self.waveformCanvas.loop_start_handle.set_xdata([self.loop_start])
-        self.waveformCanvas.loop_end_handle.set_xdata([self.loop_end])
-        self.waveformCanvas.draw_idle()
+        self.waveformCanvas.update_selection_patch()
+
 
 
     def set_media(self, file_path):
