@@ -1,0 +1,440 @@
+import os
+import sys
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QScrollArea, QFrame, QTreeWidget, QTreeWidgetItem, QHBoxLayout, QListWidget, QListWidgetItem
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QFont, QBrush, QColor
+
+class ScrollWindow(QWidget):
+
+    filePathsChanged = pyqtSignal(list)
+    uncheckedFilePathsChanged = pyqtSignal(list)
+    BASE_PATH = r"C:\Users\TaRi525\Documents\Hyper X Intern Project\Microphone_Recordings"
+    
+    # Constants for styling
+    MAIN_TITLE_STYLE = "font-size: 60px; font-family: 'Forma DJR Display';"
+    SCROLL_BAR_STYLE = """
+        QScrollBar:vertical {
+            border: none;
+            background: white;
+            width: 12px;
+            margin: 0px 0px 0px 0px;
+            border-radius: 5px;
+        }
+        QScrollBar::handle:vertical {
+            background: #C0C0C0;
+            min-height: 20px;
+            border-radius: 5px;
+        }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            background: none;
+            height: 0px;
+        }
+    """
+    TREE_WIDGET_STYLE = """
+        QTreeWidget {
+            background-color: #DEE0F6;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        QTreeWidget::item {
+            color: black;
+        }
+        QTreeWidget::item:selected {
+            background-color: #BBD2F5;
+        }
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.current_selected_file_paths = set()
+        self.setWindowTitle("HyperX Microphone Comparisons")
+        self.setGeometry(100, 100, 2000, 1600)
+
+        main_layout = QHBoxLayout()
+        self.setLayout(main_layout)
+
+        # Left panel for microphone list
+        self.left_panel = QFrame()
+        self.left_panel.setFrameShape(QFrame.StyledPanel)
+        self.left_panel.setStyleSheet("background-color: white; border: none; border-radius: 10px")
+        
+        self.set_left_panel_width()  # Call the method to set initial width
+        
+        main_layout.addWidget(self.left_panel, 1)
+
+        left_layout = QVBoxLayout()
+        self.left_panel.setLayout(left_layout)
+
+        # Horizontal layout for title
+        title_layout = QHBoxLayout()
+
+        title = QLabel("Microphones")
+        title.setStyleSheet(self.MAIN_TITLE_STYLE)
+        title_layout.addWidget(title)
+
+        left_layout.addLayout(title_layout)
+
+        # Scroll Area for Microphone List
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet(self.SCROLL_BAR_STYLE)
+
+        scroll_content = QWidget()
+        self.scroll_layout = QVBoxLayout(scroll_content)
+        scroll_area.setWidget(scroll_content)
+
+        left_layout.addWidget(scroll_area)
+
+        # Initialize the tree layout
+        self.add_microphone_sections()
+
+        # Right panel for file paths list
+        self.right_panel = QFrame()
+        self.right_panel.setFrameShape(QFrame.StyledPanel)
+        self.right_panel.setStyleSheet("background-color: white; border: none; border-radius: 10px")
+        
+        self.right_panel_layout = QVBoxLayout()
+        self.right_panel.setLayout(self.right_panel_layout)
+        
+        self.file_list = QListWidget()
+        self.right_panel_layout.addWidget(self.file_list)
+
+        main_layout.addWidget(self.right_panel, 1)
+
+        self.show()
+        self.previous_file_paths = []
+        self.processed_file_paths = set()
+
+
+    def set_left_panel_width(self):
+        screen_width = QApplication.primaryScreen().geometry().width()
+        desired_width = int(screen_width * 0.27)  # 27% of the screen width
+        new_width = min(desired_width, 600)  # Use the smaller of 27% screen width or 600 pixels
+        self.left_panel.setFixedWidth(new_width)
+        
+    def resizeEvent(self, event):
+        self.set_left_panel_width()  # Adjust width on resize
+        super().resizeEvent(event)
+
+    def add_microphone_sections(self):
+        # Clear the existing layout
+        for i in reversed(range(self.scroll_layout.count())):
+            widget = self.scroll_layout.itemAt(i).widget()
+            if widget is not None:
+                widget.deleteLater()
+            else:
+                self.scroll_layout.removeItem(self.scroll_layout.itemAt(i))
+
+        # Product sections
+        product_font = QFont("Forma DJR Display", 20)
+
+        section_info = [
+            ("Boom", "Boom"),
+            ("Condenser", "Condenser"),
+            ("Dynamic", "Dynamic")
+        ]
+
+        for section_name, relative_path in section_info:
+            microphone_tree = QTreeWidget()
+            microphone_tree.setHeaderHidden(True)
+            microphone_tree.setStyleSheet(self.TREE_WIDGET_STYLE)
+
+            section_item = QTreeWidgetItem([section_name])
+            section_item.setFont(0, product_font)
+            section_item.setData(0, Qt.UserRole, relative_path)  # Store the relative path
+            section_item.setFlags(section_item.flags() | Qt.ItemIsUserCheckable)
+            section_item.setCheckState(0, Qt.Unchecked)
+            microphone_tree.addTopLevelItem(section_item)
+
+            self.populate_initial_tree(section_item, relative_path, product_font)
+
+            self.scroll_layout.addWidget(microphone_tree)
+            microphone_tree.itemExpanded.connect(self.on_item_expanded)  # Connect expand signal
+            microphone_tree.itemChanged.connect(self.handle_item_changed)  # Connect itemChanged signal
+
+    def populate_initial_tree(self, parent_item, relative_path, font):
+        # Add HyperX and Competitor folders
+        for folder in ['HyperX', 'Competitor']:
+            folder_item = QTreeWidgetItem([folder])
+            folder_item.setFont(0, font)
+            folder_item.setForeground(0, QBrush(QColor("black")))
+            folder_item.setFlags(folder_item.flags() | Qt.ItemIsUserCheckable)
+            folder_item.setCheckState(0, Qt.Unchecked)
+            parent_item.addChild(folder_item)
+
+            # Add a dummy child to make the item expandable
+            dummy_item = QTreeWidgetItem([""])
+            folder_item.addChild(dummy_item)
+
+    def on_item_expanded(self, item):
+        if item.childCount() == 1 and item.child(0).text(0) == '':
+            item.removeChild(item.child(0))  # Remove the dummy item
+            relative_path = self.get_full_relative_path(item)
+            if item.text(0) == 'Competitor':
+                self.populate_competitor_subfolder(item, relative_path)
+            elif item.text(0) == 'HyperX':
+                self.populate_hyperx_subfolder(item, relative_path)
+            
+            # Propagate the check state to the children
+            self.update_children_check_state(item, item.checkState(0))
+
+    def populate_competitor_subfolder(self, parent_item, relative_path):
+        path = os.path.join(self.BASE_PATH, relative_path)
+        try:
+            subdirectories = [d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))]
+
+            for directory in subdirectories:
+                parts = directory.split('_')
+                if len(parts) >= 4:  # Ensure we have at least Company_Item_Pattern_Position
+                    company, item, pattern, position = parts[:4]
+                    fx = parts[4] if len(parts) > 4 else None
+
+                    # Find or create the company node
+                    company_item = self.find_or_create_child(parent_item, company, parent_item.font(0))
+                    
+                    # Find or create the item node
+                    item_node = self.find_or_create_child(company_item, item, parent_item.font(0))
+
+                    # Find or create the pattern node
+                    pattern_node = self.find_or_create_child(item_node, pattern, parent_item.font(0))
+
+                    # Find or create the position node
+                    position_node = self.find_or_create_child(pattern_node, position, parent_item.font(0))
+
+                    # If FX exists, add it as a child node
+                    if fx:
+                        fx_node = QTreeWidgetItem([fx])
+                        fx_node.setFont(0, parent_item.font(0))
+                        fx_node.setForeground(0, QBrush(QColor("black")))
+                        fx_node.setFlags(fx_node.flags() | Qt.ItemIsUserCheckable)
+                        fx_node.setCheckState(0, Qt.Unchecked)
+                        position_node.addChild(fx_node)
+
+        except PermissionError as e:
+            print(f"Permission error accessing {path}: {e}")
+        except Exception as e:
+            print(f"An error occurred while accessing {path}: {e}")
+
+    def populate_hyperx_subfolder(self, parent_item, relative_path):
+        parent_text = parent_item.parent().text(0)
+        path = os.path.join(self.BASE_PATH, relative_path)
+        try:
+            subdirectories = [d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))]
+            for directory in subdirectories:
+                parts = directory.split('_')
+                #print(f"Processing directory: {directory}, parts: {parts}")  # Debug
+
+                if parent_text == "Boom" and len(parts) >= 3:
+                    product_sample, pattern, position = parts[1:4]
+                    product, sample = product_sample.split('-')
+                    fx = parts[4] if len(parts) > 4 else None
+
+                    #print(f"Boom: product={product}, sample={sample}, pattern={pattern}, position={position}, fx={fx}")  # Debug
+
+                    product_item = self.find_or_create_child(parent_item, product, parent_item.font(0))
+                    sample_node = self.find_or_create_child(product_item, sample, parent_item.font(0))
+                    pattern_node = self.find_or_create_child(sample_node, pattern, parent_item.font(0))
+                    position_node = self.find_or_create_child(pattern_node, position, parent_item.font(0))
+
+                    if fx:
+                        fx_node = self.find_or_create_child(position_node, fx, parent_item.font(0))
+
+                elif parent_text in ["Condenser", "Dynamic"]:
+                    product_build_sample, pattern, position = parts[1:4]
+                    try:
+                        product, build, sample = product_build_sample.split('-')
+                    except ValueError:
+                        #print(f"ValueError: Failed to split product_build_sample: {product_build_sample}")  # Debug
+                        continue
+
+                    fx = parts[4] if len(parts) > 4 else None
+
+                    #print(f"{parent_text}: product={product}, build={build}, sample={sample}, pattern={pattern}, position={position}, fx={fx}")  # Debug
+
+                    product_item = self.find_or_create_child(parent_item, product, parent_item.font(0))
+                    build_node = self.find_or_create_child(product_item, build, parent_item.font(0))
+                    sample_node = self.find_or_create_child(build_node, sample, parent_item.font(0))
+                    pattern_node = self.find_or_create_child(sample_node, pattern, parent_item.font(0))
+                    position_node = self.find_or_create_child(pattern_node, position, parent_item.font(0))
+
+                    if fx:
+                        fx_node = self.find_or_create_child(position_node, fx, parent_item.font(0))
+
+        except PermissionError as e:
+            print(f"Permission error accessing {path}: {e}")
+        except Exception as e:
+            print(f"An error occurred while accessing {path}: {e}")
+
+    def find_or_create_child(self, parent, text, font):
+        for i in range(parent.childCount()):
+            child = parent.child(i)
+            if child.text(0) == text:
+                return child
+
+        new_child = QTreeWidgetItem([text])
+        new_child.setFont(0, font)
+        new_child.setForeground(0, QBrush(QColor("black")))  # Ensure the text color is black
+        new_child.setFlags(new_child.flags() | Qt.ItemIsUserCheckable)
+        new_child.setCheckState(0, Qt.Unchecked)
+        parent.addChild(new_child)
+        return new_child
+
+
+
+
+
+    def update_children_check_state(self, item, check_state):
+        for i in range(item.childCount()):
+            child = item.child(i)
+            child.setCheckState(0, check_state)
+            self.update_children_check_state(child, check_state)
+
+    def get_full_relative_path(self, item):
+        parts = []
+        current_item = item
+        while current_item:
+            parts.insert(0, current_item.text(0))
+            current_item = current_item.parent()
+        return os.path.join(*parts)
+
+
+    def update_file_list(self):
+        self.file_list.clear()
+        added_paths = set()
+        self.add_checked_items(self.scroll_layout, added_paths)
+        
+        # Emit the signal with the list of file paths
+        current_file_paths = list(added_paths)
+        if current_file_paths != self.previous_file_paths:
+            self.filePathsChanged.emit(current_file_paths)
+            self.previous_file_paths = current_file_paths  # Update the previous file paths
+    def add_checked_items(self, layout, added_paths):
+        for i in range(layout.count()):
+            widget = layout.itemAt(i).widget()
+            if isinstance(widget, QTreeWidget):
+                self.add_checked_items_from_tree(widget.invisibleRootItem(), added_paths)
+
+    def add_checked_items_from_tree(self, tree_item, added_paths):
+        for i in range(tree_item.childCount()):
+            child = tree_item.child(i)
+            if child.checkState(0) == Qt.Checked:
+                # Populate children if not already populated
+                self.populate_children_if_needed(child)
+                # Collect paths for the item and all its descendants
+                paths = self.get_all_descendant_paths(child)
+                for path in paths:
+                    if path not in added_paths:
+                        self.file_list.addItem(QListWidgetItem(path))
+                        added_paths.add(path)
+            self.add_checked_items_from_tree(child, added_paths)
+
+    def populate_children_if_needed(self, item):
+        if item.childCount() == 1 and item.child(0).text(0) == '':
+            # This item has only the dummy child, populate it
+            item.removeChild(item.child(0))  # Remove the dummy item
+            relative_path = self.get_full_relative_path(item)
+            if item.text(0) == 'Competitor':
+                self.populate_competitor_subfolder(item, relative_path)
+            elif item.text(0) == 'HyperX':
+                self.populate_hyperx_subfolder(item, relative_path)
+
+    def get_all_descendant_paths(self, item):
+        """ Recursively get all descendant paths for the given item. """
+        paths = []
+        if item.childCount() == 0:
+            full_path = os.path.join(self.BASE_PATH, self.get_full_relative_path(item))
+            formatted_path = self.format_path(full_path)
+            paths.append(formatted_path)
+        else:
+            for i in range(item.childCount()):
+                child = item.child(i)
+                paths.extend(self.get_all_descendant_paths(child))
+        return paths
+
+    def format_path(self, path):
+        competitor_keywords = ['Boom\\Competitor', 'Dynamic\\Competitor', 'Condenser\\Competitor']
+        hyperx_keywords = ['Boom\\HyperX', 'Dynamic\\HyperX', 'Condenser\\HyperX']
+
+        # Handle competitor keywords
+        for keyword in competitor_keywords:
+            if keyword in path:
+                prefix, suffix = path.split(keyword, 1)
+                suffix = suffix.strip("\\").replace('\\', '_')
+                return prefix + keyword + "\\" + suffix
+
+        # Handle HyperX keywords
+        for keyword in hyperx_keywords:
+            if keyword in path:
+                prefix, suffix = path.split(keyword, 1)  # Split into prefix and suffix
+                suffix = suffix.strip("\\")
+                parts = suffix.split('\\')  # Split suffix into parts
+
+                # Handle Boom\HyperX
+                if keyword == 'Boom\\HyperX' and len(parts) >= 4:
+                    product, sample, pattern, position = parts[:4]
+                    product_sample = f"{product}-{sample}"  # Combine product and sample
+                    formatted_suffix = f"HyperX_{product_sample}_{pattern}_{position}"
+                    if len(parts) > 4:  # Ensure FX part is included if it exists
+                        fx = parts[4]
+                        formatted_suffix += f"_{fx}"
+                    return prefix + keyword + "\\" + formatted_suffix
+
+                # Handle Dynamic\HyperX and Condenser\HyperX
+                if keyword in ['Dynamic\\HyperX', 'Condenser\\HyperX'] and len(parts) >= 5:
+                    product, build, sample, pattern, position = parts[:5]
+                    product_build_sample = f"{product}-{build}-{sample}"  # Combine product, build, and sample
+                    formatted_suffix = f"HyperX_{product_build_sample}_{pattern}_{position}"
+                    if len(parts) > 5:  # Ensure FX part is included if it exists
+                        fx = parts[5]
+                        formatted_suffix += f"_{fx}"
+                    return prefix + keyword + "\\" + formatted_suffix
+
+        # If no keyword is matched, return the original path
+        return path
+    def get_selected_file_paths(self):
+        file_paths = []
+        for index in range(self.file_list.count()):
+            file_paths.append(self.file_list.item(index).text())
+        return file_paths
+    def handle_item_changed(self, item, column):
+        if item.checkState(column) in (Qt.Checked, Qt.Unchecked):
+            self.update_children_check_state(item, item.checkState(column))
+            self.update_file_list()
+
+            # Get the current list of selected file paths
+            current_file_paths = self.get_selected_file_paths()
+
+            # Check if the item was unchecked and needs to be removed
+            if item.checkState(column) == Qt.Unchecked:
+                unchecked_file_paths = self.get_unchecked_file_paths()
+                self.uncheckedFilePathsChanged.emit(unchecked_file_paths)
+            else:
+                # Emit the signal only if the selection has changed
+                if current_file_paths != self.previous_file_paths:
+                    self.filePathsChanged.emit(current_file_paths)
+
+            self.previous_file_paths = current_file_paths  # Update the previous file paths
+
+def get_unchecked_file_paths(self):
+    unchecked_paths = []
+    root = self.scroll_layout
+    stack = [root.itemAt(i).widget() for i in range(root.count()) if isinstance(root.itemAt(i).widget(), QTreeWidget)]
+    while stack:
+        widget = stack.pop()
+        for i in range(widget.topLevelItemCount()):
+            item = widget.topLevelItem(i)
+            self.collect_unchecked_file_paths(item, unchecked_paths)
+    return unchecked_paths
+
+def collect_unchecked_file_paths(self, item, unchecked_paths):
+    if item.checkState(0) == Qt.Unchecked:
+        unchecked_paths.append(self.get_full_relative_path(item))
+    for i in range(item.childCount()):
+        self.collect_unchecked_file_paths(item.child(i), unchecked_paths)
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    main_window = ScrollWindow()
+    sys.exit(app.exec_())
+
+
