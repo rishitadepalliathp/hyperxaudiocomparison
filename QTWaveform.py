@@ -11,6 +11,7 @@ from PyQt5.QtGui import QFont
 from matplotlib.font_manager import FontProperties
 import scipy.signal
 import time
+from matplotlib.patches import FancyBboxPatch
 
 # Define font constants
 FONT_FAMILY = 'Forma DJR Micro'
@@ -124,6 +125,12 @@ class WaveformCanvas(FigureCanvas):
 class MusicPlayer(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setStyleSheet("""
+            QWidget {
+                background-color: white;
+                border-radius: 15px;
+            }
+        """)
         self.mediaPlayer = QMediaPlayer()
         self.mediaPlayer.positionChanged.connect(self.update_time)
         self.mediaPlayer.stateChanged.connect(self.update_button_text)
@@ -138,21 +145,94 @@ class MusicPlayer(QWidget):
         self.playButton.setMinimumHeight(100)
         self.playButton.setFont(font)
         self.playButton.clicked.connect(self.play_pause)
+        self.playButton.setStyleSheet("""
+            QPushButton {
+                background-color: black;
+                color: white;
+                border-radius: 15px; font-size: 25px;
+            }
+            QPushButton:pressed {
+                background-color: gray;
+            }
+        """)
 
         self.toggleButton = QPushButton("Toggle")
         self.toggleButton.setMinimumHeight(100)
         self.toggleButton.setFont(font)
         self.toggleButton.clicked.connect(self.toggle_waveform)
+        self.toggleButton.setStyleSheet("""
+            QPushButton {
+                background-color: black;
+                color: white;
+                border-radius: 15px; font-size: 25px;
+            }
+            QPushButton:pressed {
+                background-color: gray;
+            }
+        """)
+        SCROLL_BAR_STYLE = """
+            QScrollBar:vertical {
+                border: none;
+                background: white;
+                width: 12px;
+                margin: 0px 0px 0px 0px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background: #C0C0C0;
+                min-height: 20px;
+                border-radius: 5px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                background: none;
+                height: 0px;
+            }
+
+            QScrollBar:horizontal {
+                border: none;
+                background: white;
+                height: 12px;
+                margin: 0px 0px 0px 0px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #C0C0C0;
+                min-width: 20px;
+                border-radius: 5px;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                background: none;
+                width: 0px;
+            }
+        """
+
+
 
         self.label = QLabel("00:00/00:00")
         self.label.setAlignment(Qt.AlignCenter)
         self.label.setFont(font)
         self.label.setStyleSheet("font-size: 24px;")
-
+        
         self.fileTreeWidget = QTreeWidget()
         self.fileTreeWidget.setFont(font)
         self.fileTreeWidget.setHeaderHidden(True)
         self.fileTreeWidget.itemClicked.connect(self.display_selected_waveform)
+        self.fileTreeWidget.setStyleSheet(f"""
+            QTreeWidget {{
+                background-color: #FFFFFF;
+                border: 1px solid black;
+                border-radius: 10px;
+                margin-bottom: 20px;
+            }}
+            QTreeWidget::item {{
+                color: black;
+            }}
+            QTreeWidget::item:selected {{
+                background-color: #BBD2F5;
+            }}
+            {SCROLL_BAR_STYLE}
+        """)
+
 
         self.timer = QTimer(self)
         self.timer.setInterval(10)  # Update every 20 milliseconds
@@ -180,6 +260,43 @@ class MusicPlayer(QWidget):
         male_button = QPushButton("Male")
         female_button = QPushButton("Female")
         pink_noise_button = QPushButton("Pink Noise")
+        male_button.setFont(QFont(FONT_FAMILY, 25))
+        male_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4659f5;
+                color: white;
+                border-radius: 5px;
+                font-size: 25px;
+            }
+            QPushButton:pressed {
+                background-color: gray;
+            }
+        """)
+        female_button.setFont(QFont(FONT_FAMILY, 25))
+        female_button.setStyleSheet("""
+            QPushButton {
+                background-color: #aa9ef9;
+                color: white;
+                border-radius: 5px;
+                font-size: 25px;
+            }
+            QPushButton:pressed {
+                background-color: gray;
+            }
+        """)
+
+        pink_noise_button.setFont(QFont(FONT_FAMILY, 25))
+        pink_noise_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ff83ff;
+                color: white;
+                border-radius: 5px;
+                font-size: 25px;
+            }
+            QPushButton:pressed {
+                background-color: gray;
+            }
+        """)
 
         # Add the buttons to the horizontal layout
         button_hbox_layout.addWidget(male_button)
@@ -229,7 +346,18 @@ class MusicPlayer(QWidget):
         select_all_button.clicked.connect(self.select_all)
         clear_all_button.clicked.connect(self.clear_all)
         self.current_file_type = None
-
+        for button in [select_all_button, clear_all_button]:
+            button.setFont(QFont(FONT_FAMILY, FONT_SIZE))
+            button.setStyleSheet("""
+                QPushButton {
+                    background-color: black;
+                    color: white; 
+                    border-radius: 5px; font-size: 25px;
+                }
+                QPushButton:pressed {
+                    background-color: gray;
+                }
+            """)
 
 
     def load_first_file(self):
@@ -268,49 +396,66 @@ class MusicPlayer(QWidget):
             for file_path in file_paths:
                 y, sr = librosa.load(file_path, sr=None, mono=False)  # Ensure original sample rate and stereo
                 file_name = os.path.basename(file_path)
-                
-                # Determine the display name
+
+                # Determine the display name with unique identifier
                 if 'pinknoise' in file_name.lower():
-                    display_name = 'Pink Noise'
+                    display_name = f"{display_folder_name} - Pink Noise"
                 elif 'female' in file_name.lower():
-                    display_name = 'Female'
+                    display_name = f"{display_folder_name} - Female"
                 elif 'male' in file_name.lower() and 'female' not in file_name.lower():
-                    display_name = 'Male'
+                    display_name = f"{display_folder_name} - Male"
                 else:
-                    display_name = file_name.split('.')[0].upper()  # Use the file name directly
+                    display_name = f"{display_folder_name} - {file_name.split('.')[0].upper()}"
 
                 waveform_item = QTreeWidgetItem([display_name])
                 waveform_item.setFlags(waveform_item.flags() | Qt.ItemIsUserCheckable)  # Add checkbox
                 waveform_item.setCheckState(0, Qt.Checked)  # Set initial state to checked
                 folder_item.addChild(waveform_item)
-                
-                # Store the mapping in the dictionary
-                self.file_path_dict[display_name] = file_path
-                
-                self.waveform_data.append((y, sr, file_path))
+
+                # Store the mapping in the dictionary with a unique key
+                unique_key = f"{display_folder_name}_{display_name}"
+                self.file_path_dict[unique_key] = file_path
+
+                self.waveform_data.append((y, sr, unique_key))
 
             self.playButton.setEnabled(True)
             # Plot the first waveform and set it as the current media
             if self.waveform_data:
-                y, sr, file_path = self.waveform_data[0]
+                y, sr, unique_key = self.waveform_data[0]
                 display_name = folder_item.child(0).text(0)
                 self.waveformCanvas.plot_waveform(y, sr, title=f"{display_folder_name} - {display_name}")  # Use display name for the title
 
             # Load the first file in the tree
             self.load_first_file()
 
+            # Sort the top-level items (folders) alphabetically
+            self.sort_top_level_items()
             # Expand all items
-            self.expand_all_items(folder_item)
+            self.expand_all_items()
+
+    def sort_top_level_items(self):
+        top_level_items = []
+
+        while self.fileTreeWidget.topLevelItemCount() > 0:
+            item = self.fileTreeWidget.takeTopLevelItem(0)
+            if item is not None:
+                top_level_items.append(item)
+
+        top_level_items.sort(key=lambda item: item.text(0))
+
+        for item in top_level_items:
+            self.fileTreeWidget.addTopLevelItem(item)
 
 
-    def expand_all_items(self, item):
-        stack = [item]
-        while stack:
-            parent = stack.pop()
-            self.fileTreeWidget.expandItem(parent)
-            for i in range(parent.childCount()):
-                child = parent.child(i)
-                stack.append(child)
+    def expand_all_items(self):
+        def recursive_expand(item):
+            self.fileTreeWidget.expandItem(item)
+            for i in range(item.childCount()):
+                recursive_expand(item.child(i))
+
+        root = self.fileTreeWidget.invisibleRootItem()
+        for i in range(root.childCount()):
+            recursive_expand(root.child(i))
 
 
 
@@ -339,6 +484,7 @@ class MusicPlayer(QWidget):
         self.highlight_current_file()
         # Explicitly set the player to stop
         self.mediaPlayer.stop()
+
 
 
 
@@ -388,31 +534,28 @@ class MusicPlayer(QWidget):
 
         display_folder_name = parent.text(0)
         display_name = item.text(0)
-        
-        # Reconstruct the original folder name from the display name
-        folder_name = display_folder_name.replace(' ', '_')
-        
-        # Use the display name to get the actual file path
-        file_path = self.file_path_dict.get(display_name)
+
+        # Use the unique key to get the actual file path
+        unique_key = f"{display_folder_name}_{display_name}"
+        file_path = self.file_path_dict.get(unique_key)
 
         if file_path:
-            for index, (y, sr, path) in enumerate(self.waveform_data):
-                if path == file_path:
+            for index, (y, sr, key) in enumerate(self.waveform_data):
+                if key == unique_key:
                     previous_waveform = self.current_waveform
                     self.current_waveform = index
                     old_duration = librosa.get_duration(y=self.waveform_data[previous_waveform][0], sr=self.waveform_data[previous_waveform][1])
                     new_duration = librosa.get_duration(y=y, sr=sr)
                     if old_duration != new_duration and reset_loop_points:
                         self.waveformCanvas.reset_loop_points()
-                    self.load_and_adjust_waveform(y, sr, path, display_name, display_folder_name)
-                    
+                    self.load_and_adjust_waveform(y, sr, file_path, display_name, display_folder_name)
+
                     # Update the current file type
                     self.current_file_type = display_name
                     break
 
         if reset_loop_points:
             self.waveformCanvas.reset_loop_points()  # Reset loop points every time an item is clicked
-
     def set_loop_points(self, start, end):
         duration = self.waveformCanvas.ax.get_xlim()[1]
         self.loop_start = max(0, min(start, duration))
@@ -578,11 +721,21 @@ class MusicPlayer(QWidget):
             # Disable play button as there are no files to play
             self.playButton.setEnabled(False)
 
+            # Clear the file path dictionary
+            self.file_path_dict.clear()
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"An error occurred while clearing data: {e}")
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Space:
-            self.play_pause()
+
+    def clear_all_files(self):
+        self.waveform_data.clear()
+        self.fileTreeWidget.clear()
+        self.waveformCanvas.ax.clear()
+        self.waveformCanvas.draw()
+        self.mediaPlayer.setMedia(QMediaContent())
+        self.label.setText("00:00/00:00")
+        self.loop_start = 0
+        self.loop_end = 0
 
 
 
@@ -601,6 +754,7 @@ class WaveWindow(QMainWindow):
 
         widget = QWidget()
         widget.setLayout(mainLayout)
+
         self.setCentralWidget(widget)
 
 if __name__ == '__main__':
